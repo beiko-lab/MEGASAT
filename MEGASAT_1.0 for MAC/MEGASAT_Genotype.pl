@@ -27,10 +27,12 @@ my $suffix="-b";
 my $inputPrimers = $ARGV[0];
 # The maximum # of mismatches (if parameter not given, max mismatches = 0, i.e. exact matches are required)
 my $mismatches = $ARGV[1];
+# The minimum depth threshold
+my $m_depth = $ARGV[2];
 # The data set folder that contains all the input sequence read files (fastq file)
-my $dataset = $ARGV[2];
+my $dataset = $ARGV[3];
 # The directory to save the output folder
-my $saveDir = $ARGV[3];
+my $saveDir = $ARGV[4];
 # get the name of data set
 my $nameofdataset = substr($dataset,rindex($dataset,'/')+1);
 my $path="$saveDir/Output_$nameofdataset";
@@ -75,8 +77,9 @@ foreach my $MSname (sort keys %primerSeqs) {
 	push(@MS,$MSname.$suffix);
 	}
 
-### produce a txt file that has all the ratios for each locus
-open (OUT, ">$path/Ratios_$nameofdataset.txt");
+### produce a txt file that has the minimum depth threshold and all the ratios for each locus
+open (OUT, ">$path/Ratios_Threshold_$nameofdataset.txt");
+print OUT "minimum depth threshold,$m_depth\n";
 print OUT "$_,@{$Hash_ratios{$_}}\n" for sort keys %Hash_ratios;
 close (OUT);
 
@@ -280,7 +283,7 @@ foreach my $outMS (sort keys %primerSeqs) {
     if(defined($lengths{$outMS}) && scalar keys %{$lengths{$outMS}} >=2){
 	     @sorted = sort {$lengths{$outMS}{$b} <=> $lengths{$outMS}{$a}} keys %{$lengths{$outMS}};
 	     my $sum=$lengths{$outMS}{$sorted[0]}+$lengths{$outMS}{$sorted[1]};
-	     if($sum>=20){
+	     if($sum>=$m_depth){
 	        if($sorted[0] < $sorted[1]){
 	            my $ratio= $lengths{$outMS}{$sorted[1]}/$lengths{$outMS}{$sorted[0]};
 	            if($ratio>=$Hash_ratios{$outMS}[0]){
@@ -322,7 +325,7 @@ foreach my $outMS (sort keys %primerSeqs) {
        }
    } elsif(scalar keys %{$lengths{$outMS}}==1){
        @sorted = sort {$lengths{$outMS}{$b} <=> $lengths{$outMS}{$a}} keys %{$lengths{$outMS}};
-       if($lengths{$outMS}{$sorted[0]}>=20){
+       if($lengths{$outMS}{$sorted[0]}>=$m_depth){
           push (@Plength, ($sorted[0],$sorted[0]));
          } else{
            push (@Plength, (0,0));

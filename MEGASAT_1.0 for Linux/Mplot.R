@@ -36,6 +36,11 @@ options (warn=-1)
 if(file.copy(from=paste (inputDir, "Genotype.txt", sep = "/"), to=paste (plotDir, "Genotype.txt", sep = "/"),overwrite =TRUE,copy.mode = TRUE)==FALSE){
   print("Cannot copy Genotype.txt to plot directory!")
 }
+#get the file name of the Ratio_Threshold_XX.txt
+file_name = list.files(inputDir,pattern='Ratios_Threshold_.*\\.txt',recursive=TRUE)
+RT_data <- read.csv(paste(inputDir,"/",file_name,sep=""), header=TRUE, sep=",")
+#get the minimum depth threshold
+m_depth <- as.numeric(str_sub(colnames(RT_data)[2],2))
 # get the files whose names are in a  pattern from the input folder
 InfileList = list.files(inputDir,pattern='Genotype_.*\\.txt',recursive=TRUE)
 # get the number of files in the input folder
@@ -136,9 +141,9 @@ for(j in 1:length(lociName)){
     # variable name "SISLData" is singleIndSingleLocusData
     SISLData <- completedb
     # give different colors to bar plot if their sum is in different range
-    if(sum<20){
+    if(sum<m_depth){
       SISLData$bar_color = "A"
-    } else if(sum<30){
+    } else if(sum<m_depth+10){
       SISLData$bar_color = "B" 
     } else{
       SISLData$bar_color = "C"
