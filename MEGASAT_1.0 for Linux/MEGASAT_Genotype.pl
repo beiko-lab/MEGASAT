@@ -27,8 +27,8 @@ my $suffix="-b";
 # The minimum depth threshold as the third argument
 # The directory of data set folder that contains all the input sequence read files (fastq file) as the fourth argument
 # The directory to save the output folder as the fifth argument
-my ($inputPrimers,$mismatches,$m_depth,$dataset,$saveDir)= @ARGV;
-if(scalar @ARGV !=5){
+my ($inputPrimers,$mismatches,$m_depth,$dataset,$saveDir,$option);
+if(!(scalar @ARGV ==6 || scalar @ARGV ==5)){	
       die "Missing command line arguments!\n
 #######################################################################\n
 Need the directory of primer file as the first command-line argument\n
@@ -37,6 +37,13 @@ Need the minimum depth threshold as the third command-line argument\n
 Need the directory of data set folder that contains all the input sequence read files (fastq or fasta) as the fourth command-line argument\n
 Need the directory to save the output folder as the fifth command-line argument\n"; 
 } else{
+	if(scalar @ARGV ==5){
+		($inputPrimers,$mismatches,$m_depth,$dataset,$saveDir)= @ARGV;
+	} elsif(scalar @ARGV ==6 && $ARGV[5]==1){
+		($inputPrimers,$mismatches,$m_depth,$dataset,$saveDir,$option)= @ARGV;
+	} else{
+		die "You should type 1 in the last command line argument for not generating split files!";
+	}	
 	if(!(($mismatches =~ /^\d+$/) && ($m_depth =~ /^\d+$/))){
 		die "The maximum number of mismatches and the minimum depth threshold should be integers";
 	} elsif(! -d $saveDir){
@@ -46,6 +53,7 @@ Need the directory to save the output folder as the fifth command-line argument\
 # get the name of data set
 my $nameofdataset = substr($dataset,rindex($dataset,'/')+1);
 my $path="$saveDir/Output_$nameofdataset";
+my ($S_path,$G_path,$D_path,$T_path);
 # check if the folder already exists in the saving directory
 if(-d $path){
 	die "Output_$nameofdataset exists in $saveDir! Please save in another directory or change the existing folder name! ";
@@ -54,6 +62,15 @@ if(-d $path){
 else{
 	mkdir $path, 0755;
 }
+if(scalar @ARGV ==5){
+	$S_path = "$path/Sorted";
+	mkdir $S_path, 0755;
+	$D_path = "$path/Discarded";
+	mkdir $D_path, 0755;
+	$T_path = "$path/Trimmed";
+	mkdir $T_path, 0755;
+}
+
 # disable perl output buffering
 select((select(STDOUT), $|=1)[0]);
 ### Read the primers txt file and associate loci names with primers and flank information
@@ -184,8 +201,8 @@ while (<IN>) {
 		if (defined($foundForward)) {
 		    my ($LRIndex,$NumRepeat) = CONTIREPEAT($thisLine,$primerSeqs{$foundForward}[4]);
 			my $revPrimer = $primerSeqs{$foundForward}[1];
-			my $threeFlank = ($primerSeqs{$foundForward}[2] eq 'X')?'A':$primerSeqs{$foundForward}[2];
-			my $fiveFlank = ($primerSeqs{$foundForward}[3] eq 'X')?'':$primerSeqs{$foundForward}[3];
+			my $fiveFlank = ($primerSeqs{$foundForward}[2] eq 'X')?'':$primerSeqs{$foundForward}[2];
+			my $threeFlank = ($primerSeqs{$foundForward}[3] eq 'X')?'A':$primerSeqs{$foundForward}[3];
 			my $isRevMatched = FUZZYMATCH($revPrimer,$thisLine,$mismatches);
 			my $isTfMatched = FUZZYMATCH($threeFlank,$thisLine,$mismatches);
 			my $endRepeat = $LRIndex+(length $primerSeqs{$foundForward}[4]);
@@ -250,24 +267,36 @@ close (IN);
 my $prefix = $file;
 $prefix =~ s/_.*//;
 # Print the full sequences that are trimmed off forward primers
-foreach my $outFile (keys %seqsMapped) {
-    open (OUT, ">$path/Sorted_${prefix}_$outFile.split");
-	foreach my $outSeq (@{$seqsMapped{$outFile}}) {
-		print OUT "$outSeq\n";
-		}
-	close (OUT);
+if(scalar @ARGV == 5){
+	foreach my $outFile (keys %seqsMapped) {
+	    open (OUT, ">$S_path/Sorted_${prefix}_$outFile.split");
+		foreach my $outSeq (@{$seqsMapped{$outFile}}) {
+			print OUT "$outSeq\n";
+			}
+		close (OUT);
+	}
 }
+
 ## print the discarded sequences that trimmed off forward primers but don't have reverse primers and flank
 ## hash table that counts the number of discarded sequence for different locus
 my %num_Discarded = ();
-foreach my $DiscardFile (keys %seqsDiscarded) {
-    open (OUT, ">$path/Discarded_${prefix}_$DiscardFile.split");
-	foreach my $outSeq (@{$seqsDiscarded{$DiscardFile}}) {
-		print OUT "$outSeq\n";
-		++$num_Discarded{$DiscardFile};
-		}
-	close (OUT);
+if(scalar @ARGV == 5){
+	foreach my $DiscardFile (keys %seqsDiscarded) {
+	    open (OUT, ">$D_path/Discarded_${prefix}_$DiscardFile.split");
+		foreach my $outSeq (@{$seqsDiscarded{$DiscardFile}}) {
+			print OUT "$outSeq\n";
+			++$num_Discarded{$DiscardFile};
+			}
+		close (OUT);
+	}
+} else{
+	foreach my $DiscardFile (keys %seqsDiscarded) {
+		foreach my $outSeq (@{$seqsDiscarded{$DiscardFile}}) {
+			++$num_Discarded{$DiscardFile};
+			}
+	}
 }
+
 # Print the trimmed sequences associated with each primer pair, *and* count up the occurrences of different lengths
 # hash table that count the occurrences of different lengths for different locus
 my %lengths = ();
@@ -277,16 +306,27 @@ my %lenRange = ();
 my @MSlens = ();
 
 # Print the trimmed sequences associated with each primer pair
-foreach my $outPrimer (keys %seqsTrimmed) {
-	open (OUT, ">$path/Trimmed_${prefix}_$outPrimer.split");
-	foreach my $outSeq (@{$seqsTrimmed{$outPrimer}}) {
-		print OUT "$outSeq\n";
-		my $sLen = length $outSeq;
-		$lenRange{$sLen} = 1;
-		++$lengths{$outPrimer}{$sLen};
+if(scalar @ARGV == 5){
+	foreach my $outPrimer (keys %seqsTrimmed) {
+		open (OUT, ">$T_path/Trimmed_${prefix}_$outPrimer.split");
+		foreach my $outSeq (@{$seqsTrimmed{$outPrimer}}) {
+			print OUT "$outSeq\n";
+			my $sLen = length $outSeq;
+			$lenRange{$sLen} = 1;
+			++$lengths{$outPrimer}{$sLen};
+		}
+		close (OUT);
 	}
-	close (OUT);
+} else{
+	foreach my $outPrimer (keys %seqsTrimmed) {
+		foreach my $outSeq (@{$seqsTrimmed{$outPrimer}}) {
+			my $sLen = length $outSeq;
+			$lenRange{$sLen} = 1;
+			++$lengths{$outPrimer}{$sLen};
+		}
+	}
 }
+
 
 
 # Print out a table showing the length distribution of each microsatellite locus
@@ -297,7 +337,9 @@ print OUT2 "$prefix";
 my $minMS = $MSlens[0];
 my $maxMS = $MSlens[-1];
 # Print a txt file that shows the length distribution and genotype of each locus
-open (OUT, ">$path/Genotype_${prefix}.txt");
+$G_path = "$path/length_distribution";
+mkdir $G_path, 0755;
+open (OUT, ">$G_path/Genotype_${prefix}.txt");
 print OUT "Microsatellite,", join ",",@MSlens,"sum,scores\n";
 
 foreach my $outMS (sort keys %primerSeqs) {
