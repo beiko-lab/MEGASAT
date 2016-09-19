@@ -6,6 +6,8 @@
 
 use strict;
 use warnings;
+use Parallel::ForkManager;
+my $start = time;
 # The function to match primer sequences to reads, with a tolerance for mismatches (see definition at the bottom of this file)
 sub FUZZYMATCH ($$$);
 # The function to find the starting position of repeat array
@@ -27,8 +29,8 @@ my $suffix="-b";
 # The minimum depth threshold as the third argument
 # The directory of data set folder that contains all the input sequence read files (fastq file) as the fourth argument
 # The directory to save the output folder as the fifth argument
-my ($inputPrimers,$mismatches,$m_depth,$dataset,$saveDir,$option);
-if(!(scalar @ARGV ==6 || scalar @ARGV ==5)){	
+my ($inputPrimers,$mismatches,$m_depth,$max_processors,$dataset,$saveDir,$option);
+if(!(scalar @ARGV ==7 || scalar @ARGV ==6)){	
       die "Missing command line arguments!\n
 #######################################################################\n
 Need the directory of primer file as the first command-line argument\n
@@ -37,15 +39,15 @@ Need the minimum depth threshold as the third command-line argument\n
 Need the directory of data set folder that contains all the input sequence read files (fastq or fasta) as the fourth command-line argument\n
 Need the directory to save the output folder as the fifth command-line argument\n"; 
 } else{
-	if(scalar @ARGV ==5){
-		($inputPrimers,$mismatches,$m_depth,$dataset,$saveDir)= @ARGV;
-	} elsif(scalar @ARGV ==6 && $ARGV[5]==1){
-		($inputPrimers,$mismatches,$m_depth,$dataset,$saveDir,$option)= @ARGV;
+	if(scalar @ARGV ==6){
+		($inputPrimers,$mismatches,$m_depth,$max_processors,$dataset,$saveDir)= @ARGV;
+	} elsif(scalar @ARGV ==7 && $ARGV[6]==1){
+		($inputPrimers,$mismatches,$m_depth,$max_processors,$dataset,$saveDir,$option)= @ARGV;
 	} else{
 		die "You should type 1 in the last command line argument for not generating split files!";
 	}	
-	if(!(($mismatches =~ /^\d+$/) && ($m_depth =~ /^\d+$/))){
-		die "The maximum number of mismatches and the minimum depth threshold should be integers";
+	if(!(($mismatches =~ /^\d+$/) && ($m_depth =~ /^\d+$/) && ($max_processors =~ /^\d+$/))){
+		die "The maximum number of mismatches, the minimum depth threshold or the number of processors should be integers";
 	} elsif(! -d $saveDir){
 		die "The directory to save your output is wrong!";
 	}
@@ -62,7 +64,7 @@ if(-d $path){
 else{
 	mkdir $path, 0755;
 }
-if(scalar @ARGV ==5){
+if(scalar @ARGV ==6){
 	$S_path = "$path/Sorted";
 	mkdir $S_path, 0755;
 	$D_path = "$path/Discarded";
@@ -146,17 +148,20 @@ print OUT2 "Sample_idx1_idx2\t", join "\t",@name_MS,"\n";
 opendir(DIR, "$dataset" ) or die "cannot open the data set folder!";
 my @files = grep{/\.fastq$/ || /\.fasta$/} readdir(DIR);
 closedir DIR;
+## using fork to do the parallel processing
+my $fork= new Parallel::ForkManager($max_processors);
 select((select(STDOUT), $|=1)[0]);
 my $index_file = 0;
 if(scalar @files == 0){
     die "No fastq or fasta file in the data set";
 }
+DATA_LOOP:
 foreach my $file(@files){
-         $index_file++;
          my %seqsMapped = ();     ## hash table that contains sequences that are trimmed off forward primers
          my %seqsTrimmed = ();    ## hash table that contains sequences that are trimmed off forward primers and reverse primers
 		 my %seqsDiscarded = ();  ## hash table that contains sequences that are discarded
-         open (IN, "$dataset/$file") or die "cannot open $file!";
+         $fork->start and next DATA_LOOP;
+		 open (IN, "$dataset/$file") or die "cannot open $file!";
 
 
 # For each line, we will look for matches in the following order:
@@ -186,27 +191,29 @@ while (<IN>) {
 		my $large_allele = (length $thisLine) + 100;
 		my $foundForward = undef;
 		my $foundReverse = undef;		
-		foreach my $checkPrimer (keys %primerSeqs) {
+		FINDPRIMER: foreach my $checkPrimer (keys %primerSeqs) {
 			if (!defined( )) {
 				die "$checkPrimer";
-			 }
-			my $isMatched = FUZZYMATCH($primerSeqs{$checkPrimer}[0],$thisLine,$mismatches);	
+			 }              
+	 		my $isMatched = ($primerSeqs{$checkPrimer}[0] eq "X")?0:FUZZYMATCH($primerSeqs{$checkPrimer}[0],$thisLine,$mismatches);	
+			$primerSeqs{$checkPrimer}[0] = ($primerSeqs{$checkPrimer}[0] eq "X")?'':$primerSeqs{$checkPrimer}[0];
 			# Is there a fuzzy forward primer match?
-			if ($isMatched >= 0) {
-				$foundForward = $checkPrimer;
-				substr($thisLine,0,$isMatched + length $primerSeqs{$checkPrimer}[0]) = "";
-				push (@{$seqsMapped{$foundForward}},$thisLine);	
-			 }
+	 		if ($isMatched >= 0) {
+	 			$foundForward = $checkPrimer;
+	 			substr($thisLine,0,$isMatched + length $primerSeqs{$checkPrimer}[0]) = "";
+	 			push (@{$seqsMapped{$foundForward}},$thisLine);
+	 			last FINDPRIMER;	
+	 		} 
 		}
 		if (defined($foundForward)) {
 		    my ($LRIndex,$NumRepeat) = CONTIREPEAT($thisLine,$primerSeqs{$foundForward}[4]);
 			my $revPrimer = $primerSeqs{$foundForward}[1];
 			my $fiveFlank = ($primerSeqs{$foundForward}[2] eq 'X')?'':$primerSeqs{$foundForward}[2];
 			my $threeFlank = ($primerSeqs{$foundForward}[3] eq 'X')?'A':$primerSeqs{$foundForward}[3];
-			my $isRevMatched = FUZZYMATCH($revPrimer,$thisLine,$mismatches);
-			my $isTfMatched = FUZZYMATCH($threeFlank,$thisLine,$mismatches);
-			my $endRepeat = $LRIndex+(length $primerSeqs{$foundForward}[4]);
 			my $errate_fiveflank=((length $fiveFlank)!=0)?((length $fiveFlank)-(substr($thisLine,0,length $fiveFlank) ^ $fiveFlank)=~ tr[\0][\0])/(length $fiveFlank):0;
+			my $endRepeat = $LRIndex+(length $primerSeqs{$foundForward}[4]);
+			my $isRevMatched = ($revPrimer eq "X")?(length $thisLine):FUZZYMATCH($revPrimer,$thisLine,$mismatches);
+			my $isTfMatched = FUZZYMATCH($threeFlank,$thisLine,$mismatches);
 			if (!defined($revPrimer)) {
 				die $foundForward;
 			}
@@ -221,7 +228,7 @@ while (<IN>) {
 				 } else{
 				      $thisLine .=$leftPart;
 					  push @{$seqsDiscarded{$foundForward}},$thisLine;
-				    }
+				 }
 			 } elsif($errate_fiveflank<=0.2 && ((length $threeFlank)<=3 ? $thisLine =~ /$threeFlank/ : $isTfMatched>=0) && $LRIndex>=0 && $endRepeat <= (length $thisLine)-(length $threeFlank)) {
 				   if(($endRepeat < (length $thisLine)-(length $threeFlank)-(length $revPrimer)) || ($endRepeat >= (length $thisLine)-(length $threeFlank)-4 && $foundForward ne "BF-456")){
 				       if((length $threeFlank)==1){
@@ -267,7 +274,7 @@ close (IN);
 my $prefix = $file;
 $prefix =~ s/_.*//;
 # Print the full sequences that are trimmed off forward primers
-if(scalar @ARGV == 5){
+if(scalar @ARGV == 6){
 	foreach my $outFile (keys %seqsMapped) {
 	    open (OUT, ">$S_path/Sorted_${prefix}_$outFile.split");
 		foreach my $outSeq (@{$seqsMapped{$outFile}}) {
@@ -280,7 +287,7 @@ if(scalar @ARGV == 5){
 ## print the discarded sequences that trimmed off forward primers but don't have reverse primers and flank
 ## hash table that counts the number of discarded sequence for different locus
 my %num_Discarded = ();
-if(scalar @ARGV == 5){
+if(scalar @ARGV == 6){
 	foreach my $DiscardFile (keys %seqsDiscarded) {
 	    open (OUT, ">$D_path/Discarded_${prefix}_$DiscardFile.split");
 		foreach my $outSeq (@{$seqsDiscarded{$DiscardFile}}) {
@@ -306,7 +313,7 @@ my %lenRange = ();
 my @MSlens = ();
 
 # Print the trimmed sequences associated with each primer pair
-if(scalar @ARGV == 5){
+if(scalar @ARGV == 6){
 	foreach my $outPrimer (keys %seqsTrimmed) {
 		open (OUT, ">$T_path/Trimmed_${prefix}_$outPrimer.split");
 		foreach my $outSeq (@{$seqsTrimmed{$outPrimer}}) {
@@ -380,7 +387,7 @@ foreach my $outMS (sort keys %primerSeqs) {
 	        }
 	       if($sorted[0] > $sorted[1]){
 			 my $num_n = (length $primerSeqs{$outMS}[4]==2)?3:length $primerSeqs{$outMS}[4];
-	         if(($sorted[0]-$sorted[1]>=$num_n&&$lengths{$outMS}{$sorted[1]}>=$Hash_ratios{$outMS}[3]*$lengths{$outMS}{$sorted[0]})||($sorted[0]-$sorted[1]==2&&$lengths{$outMS}{$sorted[1]}>=$Hash_ratios{$outMS}[4]*$lengths{$outMS}{$sorted[0]})){
+	         if(($sorted[0]-$sorted[1]>=$num_n&&$lengths{$outMS}{$sorted[1]}>=$Hash_ratios{$outMS}[3]*$lengths{$outMS}{$sorted[0]})||($sorted[0]-$sorted[1]<=2&&$lengths{$outMS}{$sorted[1]}>=$Hash_ratios{$outMS}[4]*$lengths{$outMS}{$sorted[0]})){
 	              if(defined($sorted[2]) && $sorted[2] > $sorted[0]&& $lengths{$outMS}{$sorted[2]}/$lengths{$outMS}{$sorted[0]}>=$Hash_ratios{$outMS}[5]){
 		             push (@Plength, ('Unscored','Unscored'));
 		            } else{
@@ -420,10 +427,13 @@ foreach my $outMS (sort keys %primerSeqs) {
   print OUT1 "\n";
   print OUT2 "\n";
   close (OUT);
-  my $n_task = sprintf("%.3f",$index_file/(scalar @files));
-  my $per_task = $n_task*100;
-  print STDOUT "Completed $per_task% program.\n";
+  ## do the exit in the child process
+  $index_file = $$;
+  print STDOUT "Running the child process $index_file\n";
+  $fork->finish;
 }
+$fork->wait_all_children;
+print STDOUT "Completed 100% program.\n";
 close (OUT1);
 close (OUT2);
 ### Return the start position of a near-exact match in the target sequence
@@ -433,15 +443,15 @@ close (OUT2);
 	my $searchSeq = shift;
 	my $maxMM = shift;
 	my $MM;
-	my $startPos=0;
+	my $startPos=-1;
     my $pLen = length $primer;
 	my $sLen = length $searchSeq;
 	do {	
-        $MM=$pLen - ( substr($searchSeq, $startPos,$pLen) ^ $primer ) =~ tr[\0][\0];
 		$startPos++;
-    } while($MM > $maxMM && $startPos <= $sLen-$pLen);		
-	if ($startPos > $sLen-$pLen) { return -1; }
-	else { return $startPos-1; }
+        $MM=$pLen - ( substr($searchSeq, $startPos,$pLen) ^ $primer ) =~ tr[\0][\0];
+    } while($MM > $maxMM && $startPos < $sLen-$pLen);		
+	if ($MM <= $maxMM) {return $startPos;}
+	else { return -1; }
   }
 
 ###Find the last index of continuous repeat array
