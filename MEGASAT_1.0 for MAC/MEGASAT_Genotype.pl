@@ -144,6 +144,14 @@ print OUT1 "Sample_idx1_idx2\t", join "\t",@MS,"\n";
 open (OUT2, ">$path/Number_Discarded.txt") or die "cannot generate Number_Discarded.txt file";
 print OUT2 "Sample_idx1_idx2\t", join "\t",@name_MS,"\n";
 
+### produce a txt file that has the number of sorted sequences for all the individuals and loci
+open (OUT3, ">$path/Number_Sorted.txt") or die "cannot generate Number_Sorted.txt file";
+print OUT3 "Sample_idx1_idx2\t", join "\t",@name_MS,"\n";
+
+### produce a txt file that has the number of trimmed sequences for all the individuals and loci
+open (OUT4, ">$path/Number_Trimmed.txt") or die "cannot generate Number_Trimmed.txt file";
+print OUT4 "Sample_idx1_idx2\t", join "\t",@name_MS,"\n";
+
 # open the data set folder and start reading fastq file
 opendir(DIR, "$dataset" ) or die "cannot open the data set folder!";
 my @files = grep{/\.fastq$/ || /\.fasta$/} readdir(DIR);
@@ -274,13 +282,21 @@ close (IN);
 my $prefix = $file;
 $prefix =~ s/_.*//;
 # Print the full sequences that are trimmed off forward primers
+my %num_Sorted = ();
 if(scalar @ARGV == 6){
 	foreach my $outFile (keys %seqsMapped) {
 	    open (OUT, ">$S_path/Sorted_${prefix}_$outFile.split");
 		foreach my $outSeq (@{$seqsMapped{$outFile}}) {
+			++$num_Sorted{$outFile};
 			print OUT "$outSeq\n";
 			}
 		close (OUT);
+	}
+} else{
+	foreach my $outFile (keys %seqsMapped) {
+		foreach my $outSeq (@{$seqsMapped{$outFile}}) {
+			++$num_Sorted{$outFile};
+	    }
 	}
 }
 
@@ -311,12 +327,14 @@ my %lengths = ();
 my %lenRange = (); 
 # array that preserve the length range
 my @MSlens = ();
-
+## hash table that counts the number of trimmed sequences for each locus in individuals
+my %num_Trimmed = ();
 # Print the trimmed sequences associated with each primer pair
 if(scalar @ARGV == 6){
 	foreach my $outPrimer (keys %seqsTrimmed) {
 		open (OUT, ">$T_path/Trimmed_${prefix}_$outPrimer.split");
 		foreach my $outSeq (@{$seqsTrimmed{$outPrimer}}) {
+			++$num_Trimmed{$outPrimer};
 			print OUT "$outSeq\n";
 			my $sLen = length $outSeq;
 			$lenRange{$sLen} = 1;
@@ -327,6 +345,7 @@ if(scalar @ARGV == 6){
 } else{
 	foreach my $outPrimer (keys %seqsTrimmed) {
 		foreach my $outSeq (@{$seqsTrimmed{$outPrimer}}) {
+			++$num_Trimmed{$outPrimer};
 			my $sLen = length $outSeq;
 			$lenRange{$sLen} = 1;
 			++$lengths{$outPrimer}{$sLen};
@@ -416,16 +435,31 @@ foreach my $outMS (sort keys %primerSeqs) {
    } else{
      push (@Plength, ('X','X'));
    }
+   ## print the number of discarded sequences to text file
    if(defined ($num_Discarded{$outMS})){
         print OUT2 "\t$num_Discarded{$outMS}";
    } else{
         print OUT2 "\tX";
+   }
+   ## print the number of sorted sequences to text file
+   if(defined ($num_Sorted{$outMS})){
+        print OUT3 "\t$num_Sorted{$outMS}";
+   } else{
+        print OUT3 "\tX";
+   }
+   ## print the number of trimmed sequences to text file
+   if(defined ($num_Trimmed{$outMS})){
+        print OUT4 "\t$num_Trimmed{$outMS}";
+   } else{
+        print OUT4 "\tX";
    }
    print OUT1 "\t$Plength[0]\t$Plength[1]";
    print OUT ",@Plength\n"; 
 }
   print OUT1 "\n";
   print OUT2 "\n";
+  print OUT3 "\n";
+  print OUT4 "\n";
   close (OUT);
   ## do the exit in the child process
   $index_file = $$;
@@ -436,6 +470,8 @@ $fork->wait_all_children;
 print STDOUT "Completed 100% program.\n";
 close (OUT1);
 close (OUT2);
+close (OUT3);
+close (OUT4);
 ### Return the start position of a near-exact match in the target sequence
 ### Yes, the search algorithm is inefficient.
   sub FUZZYMATCH ($$$) {
