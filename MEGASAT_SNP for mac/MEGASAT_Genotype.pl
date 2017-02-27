@@ -179,7 +179,7 @@ foreach my $file(@files){
       my %seqsTrimmed = ();    ## hash table that contains sequences that are trimmed off forward primers and reverse primers
 	  my %seqsDiscarded = ();  ## hash table that contains sequences that are discarded
       $fork->start and next DATA_LOOP;
-	  open (IN, "./$dataset/$file") or die "cannot open $file!";
+	  open (IN, "$dataset/$file") or die "cannot open $file!";
 
 
 
