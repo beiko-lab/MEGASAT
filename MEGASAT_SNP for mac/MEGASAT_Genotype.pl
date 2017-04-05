@@ -45,6 +45,7 @@ if(!(scalar @ARGV ==7 || scalar @ARGV ==6)){
 Need the directory of primer file as the first command-line argument\n
 Need the maximum number of mismatches as the second command-line argument\n
 Need the minimum depth threshold as the third command-line argument\n
+Need the number of processes as the fourth commond-line argument\n
 Need the directory of data set folder that contains all the input sequence read files (fastq or fasta) as the fourth command-line argument\n
 Need the directory to save the output folder as the fifth command-line argument\n"; 
 } else{
@@ -450,7 +451,9 @@ print OUT2 "$prefix";
 
 @MSlens = sort {(($a=~ m/(\d+)/g)[0])+($a=~ m/(\d+)/g)[1]*(10**(-3)) <=> (($b=~ m/(\d+)/g)[0])+($b=~ m/(\d+)/g)[1]*(10**(-3))} keys %lenRange_V;
 # Print a txt file that shows the length distribution and genotype of each locus
-open (OUT, ">$path/Genotype_${prefix}.txt");
+$G_path = "$path/length_distribution";
+mkdir $G_path, 0755;
+open (OUT, ">$G_path/Genotype_${prefix}.txt");
 print OUT "Microsatellite,", join ",",@MSlens,"sum,scores\n";
 
 foreach my $outMS (sort keys %primerSeqs) {
