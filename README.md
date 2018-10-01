@@ -11,3 +11,7 @@ If you want to test MEGASAT, you can also download "Megasat_data" that contains 
 **How to run MEGASAT**
 
 The documentation of MEGASAT is the file "MEGASAT Documentation.pdf".
+
+**How to create MEGASAT primer input file**
+
+To avoid mannually create MEGASAT primer.txt file, please take a look [here](https://github.com/jh041/SamGate) 
